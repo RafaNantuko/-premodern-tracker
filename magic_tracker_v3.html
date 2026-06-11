@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Premodern Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f11; --surface: #1a1a1f; --surface2: #22222a;
+    --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.14);
+    --text: #e8e8f0; --muted: #7a7a8c; --accent: #7c6dea; --accent-light: #a898f5;
+    --win: #4caf7d; --win-bg: rgba(76,175,125,0.12); --loss: #e05c5c; --loss-bg: rgba(224,92,92,0.12);
+    --mono: 'Space Mono', monospace; --sans: 'Space Grotesk', sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+  header { padding: 1.5rem 2rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 1rem; }
+  .logo { font-family: var(--mono); font-size: 1.1rem; color: var(--accent-light); letter-spacing: -0.02em; }
+  .logo span { color: var(--muted); }
+  .badge-format { font-size: 11px; background: rgba(124,109,234,0.15); border: 1px solid rgba(124,109,234,0.3); color: var(--accent-light); padding: 3px 10px; border-radius: 999px; font-family: var(--mono); }
+  .sync-status { margin-left: auto; font-size: 11px; font-family: var(--mono); color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .sync-dot.ok { background: var(--win); }
+  .sync-dot.err { background: var(--loss); }
+  .sync-dot.loading { background: #f0a500; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .layout { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 61px); }
+  .sidebar { border-right: 1px solid var(--border); padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+  .main { padding: 1.5rem 2rem; overflow-y: auto; }
+  .form-title { font-size: 12px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.25rem; }
+  .form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+  label { font-size: 12px; color: var(--muted); }
+  input[list], input[type=text] { width: 100%; padding: 8px 10px; background: var(--surface2); border: 1px solid var(--border2); border-radius: 6px; color: var(--text); font-family: var(--sans); font-size: 13px; outline: none; }
+  input:focus { border-color: var(--accent); }
+  .result-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .result-btn { padding: 10px; border-radius: 6px; border: 1px solid var(--border2); background: var(--surface2); color: var(--muted); font-family: var(--mono); font-size: 13px; cursor: pointer; transition: all 0.15s; letter-spacing: 0.04em; }
+  .result-btn:hover { color: var(--text); }
+  .result-btn.win { background: var(--win-bg); border-color: var(--win); color: var(--win); }
+  .result-btn.loss { background: var(--loss-bg); border-color: var(--loss); color: var(--loss); }
+  .btn-save { width: 100%; padding: 10px; border-radius: 6px; border: none; background: var(--accent); color: #fff; font-family: var(--mono); font-size: 13px; cursor: pointer; letter-spacing: 0.04em; transition: background 0.15s; margin-top: 4px; }
+  .btn-save:hover { background: var(--accent-light); color: #0f0f11; }
+  .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+  .divider { height: 1px; background: var(--border); margin: 0.5rem 0; }
+  .tabs { display: flex; gap: 2px; margin-bottom: 1.5rem; background: var(--surface); border-radius: 8px; padding: 3px; }
+  .tab { flex: 1; padding: 7px 8px; font-size: 11px; font-family: var(--mono); border: none; background: none; color: var(--muted); cursor: pointer; border-radius: 6px; transition: all 0.15s; letter-spacing: 0.03em; }
+  .tab.active { background: var(--surface2); color: var(--text); }
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 1.5rem; }
+  .metric { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .metric-label { font-size: 11px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .metric-value { font-size: 28px; font-family: var(--mono); font-weight: 700; }
+  .metric-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 1.5rem; }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .chart-card-title { font-size: 11px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+  .chart-wrap { position: relative; }
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .table-header { padding: 12px 16px; font-size: 11px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { padding: 10px 14px; text-align: left; font-size: 11px; font-family: var(--mono); color: var(--muted); font-weight: 400; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--border); color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-family: var(--mono); font-weight: 700; }
+  .badge-W { background: var(--win-bg); color: var(--win); border: 1px solid rgba(76,175,125,0.25); }
+  .badge-L { background: var(--loss-bg); color: var(--loss); border: 1px solid rgba(224,92,92,0.25); }
+  .wr-bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .wr-bg { flex: 1; height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
+  .wr-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+  .del-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 15px; padding: 2px 5px; border-radius: 4px; }
+  .del-btn:hover { color: var(--loss); background: var(--loss-bg); }
+  .section-hidden { display: none; }
+  #toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--accent); color: #fff; padding: 10px 20px; border-radius: 8px; font-family: var(--mono); font-size: 13px; opacity: 0; transition: all 0.25s; pointer-events: none; z-index: 999; }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .notes-row td { font-size: 11px; color: var(--muted); padding-top: 0; padding-bottom: 8px; }
+  .pill { padding: 5px 12px; border-radius: 999px; font-size: 12px; font-family: var(--mono); border: 1px solid var(--border2); background: var(--surface2); color: var(--muted); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .pill:hover { border-color: var(--accent); color: var(--text); }
+  .pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .compare-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
+  .compare-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .compare-card-deck { font-size: 11px; font-family: var(--mono); color: var(--muted); margin-bottom: 6px; }
+  .compare-card-wr { font-size: 26px; font-family: var(--mono); font-weight: 700; }
+  .compare-card-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .loading-screen { display:flex; align-items:center; justify-content:center; height:200px; color:var(--muted); font-family:var(--mono); font-size:13px; gap:10px; }
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+    .charts-grid { grid-template-columns: 1fr; }
+    .metrics { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">premodern<span>.</span>tracker</div>
+  <div class="badge-format">Premodern</div>
+  <div class="sync-status">
+    <div class="sync-dot loading" id="sync-dot"></div>
+    <span id="sync-label">Conectando...</span>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="form-title">Nueva partida</div>
+    <div class="form-group">
+      <label>Mi mazo</label>
+      <input type="text" id="myDeck" placeholder="Moneyball, Burn…" list="list-my" autocomplete="off">
+      <datalist id="list-my"></datalist>
+    </div>
+    <div class="form-group">
+      <label>Mazo rival</label>
+      <input type="text" id="oppDeck" placeholder="Zoo, Oath…" list="list-opp" autocomplete="off">
+      <datalist id="list-opp"></datalist>
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Resultado</label>
+      <div class="result-row">
+        <button class="result-btn" id="btn-W" onclick="pick('W')">W — Victoria</button>
+        <button class="result-btn" id="btn-L" onclick="pick('L')">L — Derrota</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Notas (opcional)</label>
+      <input type="text" id="notes" placeholder="Game 3 muy ajustado…" autocomplete="off">
+    </div>
+    <button class="btn-save" id="btn-save" onclick="saveMatch()">Guardar →</button>
+    <div class="divider"></div>
+    <div style="font-size:11px;color:var(--muted);font-family:var(--mono);line-height:1.6">
+      Datos sincronizados con<br>Google Sheets en tiempo real.
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('stats')">Global</button>
+      <button class="tab" onclick="showTab('bydeck')">Por mazo</button>
+      <button class="tab" onclick="showTab('compare')">Comparativa</button>
+      <button class="tab" onclick="showTab('historial')">Historial</button>
+    </div>
+
+    <div id="tab-stats"><div class="loading-screen"><div class="sync-dot loading"></div> Cargando datos...</div></div>
+
+    <div id="tab-bydeck" class="section-hidden">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.25rem;flex-wrap:wrap">
+        <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">Mazo:</span>
+        <div id="deck-pills" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      </div>
+      <div class="metrics" id="deck-metrics"></div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-card-title">Winrate vs cada rival</div>
+          <div class="chart-wrap" id="chart-vsopp-wrap"><canvas id="chart-vsopp"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-title">Evolución con este mazo</div>
+          <div class="chart-wrap" style="height:220px"><canvas id="chart-deck-trend"></canvas></div>
+        </div>
+      </div>
+      <div class="table-card">
+        <div class="table-header">Emparejamientos del mazo</div>
+        <div style="overflow-x:auto"><table id="deck-matchup-table"><thead><tr><th>Rival</th><th>W</th><th>L</th><th>Winrate</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+
+    <div id="tab-compare" class="section-hidden">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:1.25rem;flex-wrap:wrap">
+        <span style="font-size:12px;font-family:var(--mono);color:var(--muted)">Rival:</span>
+        <div id="opp-pills" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      </div>
+      <div id="compare-content"></div>
+    </div>
+
+    <div id="tab-historial" class="section-hidden">
+      <div class="table-card">
+        <div class="table-header">Historial completo</div>
+        <div style="overflow-x:auto"><table id="hist-table"><thead><tr><th>Fecha</th><th>Mi mazo</th><th>Rival</th><th>Resultado</th><th></th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API = 'https://script.google.com/macros/s/AKfycbxjgfCREm4AfvWecii63Ssb4yJeKCCjT99J0YsyjvjrvvXC-Fj-5zeJBt6KMjCz6svtGw/exec';
+
+let matches = [];
+let picked = null;
+let charts = {};
+let selectedDeck = null;
+let selectedOpp = null;
+
+// ── SYNC ──────────────────────────────────────────────────────────────────────
+function setSyncStatus(state, label) {
+  const dot = document.getElementById('sync-dot');
+  const lbl = document.getElementById('sync-label');
+  dot.className = 'sync-dot ' + state;
+  lbl.textContent = label;
+}
+
+async function loadFromSheets() {
+  setSyncStatus('loading', 'Cargando...');
+  try {
+    const res = await fetch(API);
+    const data = await res.json();
+    matches = data.filter(m => m.id && m.myDeck).map(m => ({
+      id: Number(m.id),
+      date: m.date || '',
+      myDeck: m.myDeck,
+      oppDeck: m.oppDeck,
+      result: m.result,
+      notes: m.notes || '',
+      format: 'Premodern'
+    }));
+    matches.sort((a,b) => a.id - b.id);
+    setSyncStatus('ok', matches.length + ' partidas');
+    updateDataLists();
+    renderActive();
+  } catch(e) {
+    setSyncStatus('err', 'Error de conexión');
+    document.getElementById('tab-stats').innerHTML = `<div class="loading-screen" style="color:var(--loss)">Error al conectar. Comprueba tu conexión.</div>`;
+  }
+}
+
+async function postToSheets(payload) {
+  const res = await fetch(API, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  return res.text();
+}
+
+// ── FORM ──────────────────────────────────────────────────────────────────────
+function pick(r) {
+  picked = r;
+  document.getElementById('btn-W').className = 'result-btn' + (r === 'W' ? ' win' : '');
+  document.getElementById('btn-L').className = 'result-btn' + (r === 'L' ? ' loss' : '');
+}
+
+async function saveMatch() {
+  const my = document.getElementById('myDeck').value.trim();
+  const opp = document.getElementById('oppDeck').value.trim();
+  if (!my || !opp || !picked) { toast('Rellena mazo, rival y resultado', '#e05c5c'); return; }
+
+  const match = { id: Date.now(), date: new Date().toISOString(), myDeck: my, oppDeck: opp, result: picked, notes: document.getElementById('notes').value.trim(), format: 'Premodern' };
+
+  const btn = document.getElementById('btn-save');
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  setSyncStatus('loading', 'Guardando...');
+
+  try {
+    await postToSheets(match);
+    matches.push(match);
+    matches.sort((a,b) => a.id - b.id);
+    document.getElementById('myDeck').value = '';
+    document.getElementById('oppDeck').value = '';
+    document.getElementById('notes').value = '';
+    picked = null;
+    document.getElementById('btn-W').className = 'result-btn';
+    document.getElementById('btn-L').className = 'result-btn';
+    updateDataLists();
+    renderActive();
+    setSyncStatus('ok', matches.length + ' partidas');
+    toast('Partida guardada ✓');
+  } catch(e) {
+    setSyncStatus('err', 'Error al guardar');
+    toast('Error al guardar', '#e05c5c');
+  }
+  btn.disabled = false;
+  btn.textContent = 'Guardar →';
+}
+
+async function deleteMatch(id) {
+  setSyncStatus('loading', 'Eliminando...');
+  try {
+    await postToSheets({ delete: true, id });
+    matches = matches.filter(m => m.id !== id);
+    renderActive();
+    setSyncStatus('ok', matches.length + ' partidas');
+    toast('Partida eliminada');
+  } catch(e) {
+    setSyncStatus('err', 'Error al eliminar');
+    toast('Error al eliminar', '#e05c5c');
+  }
+}
+
+function toast(msg, bg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.background = bg || '#7c6dea';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function updateDataLists() {
+  const my = [...new Set(matches.map(m => m.myDeck))];
+  const opp = [...new Set(matches.map(m => m.oppDeck))];
+  document.getElementById('list-my').innerHTML = my.map(d => `<option value="${d}">`).join('');
+  document.getElementById('list-opp').innerHTML = opp.map(d => `<option value="${d}">`).join('');
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────────
+let activeTab = 'stats';
+function showTab(tab) {
+  activeTab = tab;
+  const tabNames = ['stats','bydeck','compare','historial'];
+  document.querySelectorAll('.tab').forEach((b,i) => b.classList.toggle('active', tabNames[i] === tab));
+  tabNames.forEach(t => { document.getElementById('tab-'+t).className = tab===t ? '' : 'section-hidden'; });
+  renderActive();
+}
+function renderActive() {
+  if (activeTab === 'stats') renderStats();
+  else if (activeTab === 'bydeck') renderByDeck();
+  else if (activeTab === 'compare') renderCompare();
+  else renderHistorial();
+}
+
+// ── CHARTS ────────────────────────────────────────────────────────────────────
+const CG = { gridColor:'rgba(255,255,255,0.06)', tickColor:'#7a7a8c', labelColor:'#c8c8d8', mono:{family:"'Space Mono', monospace",size:11} };
+function destroyChart(k) { if(charts[k]){charts[k].destroy();charts[k]=null;} }
+function mkBarH(id, labels, data) {
+  return new Chart(document.getElementById(id), {
+    type:'bar', data:{labels, datasets:[{data, backgroundColor:data.map(v=>v>=50?'rgba(76,175,125,0.7)':'rgba(224,92,92,0.7)'), borderRadius:4}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{min:0,max:100,grid:{color:CG.gridColor},ticks:{color:CG.tickColor,callback:v=>v+'%'}},y:{grid:{display:false},ticks:{color:CG.labelColor,font:CG.mono}}}}
+  });
+}
+function mkLine(id, labels, data) {
+  return new Chart(document.getElementById(id), {
+    type:'line', data:{labels, datasets:[{data, borderColor:'#7c6dea', backgroundColor:'rgba(124,109,234,0.1)', tension:0.3, fill:true, pointRadius:data.length>30?0:3, pointBackgroundColor:'#7c6dea'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{y:{min:0,max:100,grid:{color:CG.gridColor},ticks:{color:CG.tickColor,callback:v=>v+'%'}},x:{grid:{display:false},ticks:{color:CG.tickColor,maxTicksLimit:10}}}}
+  });
+}
+function wr(w,t){return t===0?0:Math.round(w/t*100);}
+
+// ── GLOBAL ────────────────────────────────────────────────────────────────────
+function renderStats() {
+  if (!matches.length) { document.getElementById('tab-stats').innerHTML = '<div class="loading-screen">No hay partidas aún.</div>'; return; }
+  const total=matches.length, wins=matches.filter(m=>m.result==='W').length, wrG=wr(wins,total);
+  const decks=[...new Set(matches.map(m=>m.myDeck))];
+  document.getElementById('tab-stats').innerHTML = `
+    <div class="metrics">
+      <div class="metric"><div class="metric-label">Partidas</div><div class="metric-value">${total}</div><div class="metric-sub">${wins}W — ${total-wins}L</div></div>
+      <div class="metric"><div class="metric-label">Winrate global</div><div class="metric-value" style="color:${wrG>=50?'var(--win)':'var(--loss)'}">${wrG}%</div></div>
+      <div class="metric"><div class="metric-label">Mazos jugados</div><div class="metric-value">${decks.length}</div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-card"><div class="chart-card-title">Winrate por mazo</div><div class="chart-wrap" id="chart-deck-wrap"><canvas id="chart-deck"></canvas></div></div>
+      <div class="chart-card"><div class="chart-card-title">Evolución (todas las partidas)</div><div class="chart-wrap" style="height:220px"><canvas id="chart-trend"></canvas></div></div>
+    </div>`;
+  const deckData=decks.map(d=>{const dm=matches.filter(m=>m.myDeck===d),dw=dm.filter(m=>m.result==='W').length;return{name:d,wr:wr(dw,dm.length)};}).sort((a,b)=>b.wr-a.wr);
+  document.getElementById('chart-deck-wrap').style.height=Math.max(180,deckData.length*42+40)+'px';
+  destroyChart('deck'); charts.deck=mkBarH('chart-deck',deckData.map(d=>d.name),deckData.map(d=>d.wr));
+  destroyChart('trend'); charts.trend=mkLine('chart-trend',matches.map((_,i)=>i+1),matches.map((_,i)=>wr(matches.slice(0,i+1).filter(m=>m.result==='W').length,i+1)));
+}
+
+// ── POR MAZO ─────────────────────────────────────────────────────────────────
+function renderByDeck() {
+  const myDecks=[...new Set(matches.map(m=>m.myDeck))];
+  if(!selectedDeck||!myDecks.includes(selectedDeck)) selectedDeck=myDecks[0];
+  document.getElementById('deck-pills').innerHTML=myDecks.map(d=>`<button class="pill${d===selectedDeck?' active':''}" onclick="selectDeck('${d.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">${d}</button>`).join('');
+  const dm=matches.filter(m=>m.myDeck===selectedDeck), dw=dm.filter(m=>m.result==='W').length, wrD=wr(dw,dm.length);
+  document.getElementById('deck-metrics').innerHTML=`
+    <div class="metric"><div class="metric-label">Partidas</div><div class="metric-value">${dm.length}</div><div class="metric-sub">${dw}W — ${dm.length-dw}L</div></div>
+    <div class="metric"><div class="metric-label">Winrate</div><div class="metric-value" style="color:${wrD>=50?'var(--win)':'var(--loss)'}">${wrD}%</div></div>
+    <div class="metric"><div class="metric-label">Rivales distintos</div><div class="metric-value">${[...new Set(dm.map(m=>m.oppDeck))].length}</div></div>`;
+  const oppMap={};
+  dm.forEach(m=>{if(!oppMap[m.oppDeck])oppMap[m.oppDeck]={w:0,l:0};oppMap[m.oppDeck][m.result==='W'?'w':'l']++;});
+  const oppData=Object.entries(oppMap).map(([n,s])=>({name:n,w:s.w,l:s.l,wr:wr(s.w,s.w+s.l)})).sort((a,b)=>b.wr-a.wr);
+  document.getElementById('chart-vsopp-wrap').style.height=Math.max(180,oppData.length*38+40)+'px';
+  destroyChart('vsopp'); charts.vsopp=mkBarH('chart-vsopp',oppData.map(d=>d.name),oppData.map(d=>d.wr));
+  destroyChart('deckTrend'); charts.deckTrend=mkLine('chart-deck-trend',dm.map((_,i)=>i+1),dm.map((_,i)=>wr(dm.slice(0,i+1).filter(m=>m.result==='W').length,i+1)));
+  document.querySelector('#deck-matchup-table tbody').innerHTML=oppData.map(r=>{const c=r.wr>=50?'var(--win)':'var(--loss)';return`<tr><td>${r.name}</td><td style="color:var(--win)">${r.w}</td><td style="color:var(--loss)">${r.l}</td><td><div class="wr-bar-wrap"><div class="wr-bg"><div class="wr-fill" style="width:${r.wr}%;background:${c}"></div></div><span style="font-size:12px;font-family:var(--mono);min-width:34px;text-align:right;color:${c}">${r.wr}%</span></div></td></tr>`;}).join('');
+}
+function selectDeck(d){selectedDeck=d;renderByDeck();}
+
+// ── COMPARATIVA ───────────────────────────────────────────────────────────────
+function renderCompare() {
+  const opps=[...new Set(matches.map(m=>m.oppDeck))].sort();
+  if(!selectedOpp||!opps.includes(selectedOpp)) selectedOpp=opps[0];
+  document.getElementById('opp-pills').innerHTML=opps.map(o=>`<button class="pill${o===selectedOpp?' active':''}" onclick="selectOpp('${o.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">${o}</button>`).join('');
+  const vsOpp=matches.filter(m=>m.oppDeck===selectedOpp);
+  const myDecks=[...new Set(matches.map(m=>m.myDeck))];
+  const cards=myDecks.map(d=>{const dm=vsOpp.filter(m=>m.myDeck===d);if(!dm.length)return null;const w=dm.filter(m=>m.result==='W').length;return{deck:d,w,l:dm.length-w,wr:wr(w,dm.length)};}).filter(Boolean).sort((a,b)=>b.wr-a.wr);
+  if(!cards.length){document.getElementById('compare-content').innerHTML=`<div style="color:var(--muted);font-family:var(--mono);font-size:13px;padding:2rem 0">No hay partidas contra ${selectedOpp}.</div>`;return;}
+  document.getElementById('compare-content').innerHTML=`
+    <div class="chart-card" style="margin-bottom:1.5rem">
+      <div class="chart-card-title">Mis mazos vs ${selectedOpp}</div>
+      <div class="chart-wrap" style="height:${Math.max(160,cards.length*52+40)}px"><canvas id="chart-compare"></canvas></div>
+    </div>
+    <div class="compare-grid">${cards.map(c=>`<div class="compare-card"><div class="compare-card-deck">${c.deck}</div><div class="compare-card-wr" style="color:${c.wr>=50?'var(--win)':'var(--loss)'}">${c.wr}%</div><div class="compare-card-sub">${c.w}W — ${c.l}L · ${c.w+c.l} partidas</div></div>`).join('')}</div>`;
+  setTimeout(()=>{destroyChart('compare');charts.compare=mkBarH('chart-compare',cards.map(c=>c.deck),cards.map(c=>c.wr));},30);
+}
+function selectOpp(o){selectedOpp=o;renderCompare();}
+
+// ── HISTORIAL ─────────────────────────────────────────────────────────────────
+function renderHistorial() {
+  document.querySelector('#hist-table tbody').innerHTML=[...matches].reverse().map(m=>{
+    const d=new Date(m.id>1100000?m.id:Date.parse(m.date));
+    const fecha=d>new Date('2024-01-02')?d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'}):'—';
+    return`<tr><td style="font-size:12px;color:var(--muted);font-family:var(--mono)">${fecha}</td><td style="font-family:var(--mono);font-size:12px">${m.myDeck}</td><td>${m.oppDeck}</td><td><span class="badge badge-${m.result}">${m.result==='W'?'Victoria':'Derrota'}</span></td><td><button class="del-btn" onclick="deleteMatch(${m.id})" title="Eliminar">✕</button></td></tr>${m.notes?`<tr class="notes-row"><td></td><td colspan="4">↳ ${m.notes}</td></tr>`:''}`;
+  }).join('');
+}
+
+loadFromSheets();
+</script>
+</body>
+</html>
