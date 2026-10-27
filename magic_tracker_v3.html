@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Premodern Tracker</title>
+<title>Magic Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
@@ -20,6 +20,14 @@
   header { padding: 1.5rem 2rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 1rem; }
   .logo { font-family: var(--mono); font-size: 1.1rem; color: var(--accent-light); letter-spacing: -0.02em; }
   .logo span { color: var(--muted); }
+  header { flex-wrap: wrap; }
+  .format-switch { display: flex; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 3px; }
+  .fmt-btn { padding: 4px 12px; border-radius: 999px; border: none; background: none; color: var(--muted); font-family: var(--mono); font-size: 11px; cursor: pointer; transition: all 0.15s; }
+  .fmt-btn:hover { color: var(--text); }
+  .fmt-btn.active { background: rgba(124,109,234,0.2); color: var(--accent-light); box-shadow: inset 0 0 0 1px rgba(124,109,234,0.4); }
+  .fmt-btn:focus-visible, .tab:focus-visible, .pill:focus-visible, .result-btn:focus-visible { outline: 2px solid var(--accent-light); outline-offset: 2px; }
+  .fmt-add { color: var(--muted); padding: 4px 10px; }
+  .empty-msg { color: var(--muted); font-family: var(--mono); font-size: 13px; padding: 2rem 0; }
   .badge-format { font-size: 11px; background: rgba(124,109,234,0.15); border: 1px solid rgba(124,109,234,0.3); color: var(--accent-light); padding: 3px 10px; border-radius: 999px; font-family: var(--mono); }
   .sync-status { margin-left: auto; font-size: 11px; font-family: var(--mono); color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
@@ -95,8 +103,8 @@
 <body>
 
 <header>
-  <div class="logo">premodern<span>.</span>tracker</div>
-  <div class="badge-format">Premodern</div>
+  <div class="logo">magic<span>.</span>tracker</div>
+  <div class="format-switch" id="format-switch" role="group" aria-label="Formato"></div>
   <div class="sync-status">
     <div class="sync-dot loading" id="sync-dot"></div>
     <span id="sync-label">Conectando...</span>
@@ -105,7 +113,7 @@
 
 <div class="layout">
   <aside class="sidebar">
-    <div class="form-title">Nueva partida</div>
+    <div class="form-title">Nueva partida de <span id="form-format">Premodern</span></div>
     <div class="form-group">
       <label>Mi mazo</label>
       <input type="text" id="myDeck" placeholder="Moneyball, Burn…" list="list-my" autocomplete="off">
@@ -188,7 +196,11 @@
 <script>
 const API = 'https://script.google.com/macros/s/AKfycbxjgfCREm4AfvWecii63Ssb4yJeKCCjT99J0YsyjvjrvvXC-Fj-5zeJBt6KMjCz6svtGw/exec';
 
+const BASE_FORMATS = ['Premodern', 'Pauper'];
+let allMatches = [];
 let matches = [];
+let currentFormat = 'Premodern';
+try { currentFormat = localStorage.getItem('mtg-format') || 'Premodern'; } catch(e) {}
 let picked = null;
 let charts = {};
 let selectedDeck = null;
@@ -207,19 +219,17 @@ async function loadFromSheets() {
   try {
     const res = await fetch(API);
     const data = await res.json();
-    matches = data.filter(m => m.id && m.myDeck).map(m => ({
+    allMatches = data.filter(m => m.id && m.myDeck).map(m => ({
       id: Number(m.id),
       date: m.date || '',
       myDeck: m.myDeck,
       oppDeck: m.oppDeck,
       result: m.result,
       notes: m.notes || '',
-      format: 'Premodern'
+      format: String(m.format || '').trim() || 'Premodern'
     }));
-    matches.sort((a,b) => a.id - b.id);
-    setSyncStatus('ok', matches.length + ' partidas');
-    updateDataLists();
-    renderActive();
+    allMatches.sort((a,b) => a.id - b.id);
+    applyFormat();
   } catch(e) {
     setSyncStatus('err', 'Error de conexión');
     document.getElementById('tab-stats').innerHTML = `<div class="loading-screen" style="color:var(--loss)">Error al conectar. Comprueba tu conexión.</div>`;
@@ -234,6 +244,49 @@ async function postToSheets(payload) {
   return res.text();
 }
 
+// ── FORMATO ───────────────────────────────────────────────────────────────────
+function getFormats() {
+  const f = [...BASE_FORMATS];
+  allMatches.forEach(m => { if (!f.includes(m.format)) f.push(m.format); });
+  if (!f.includes(currentFormat)) f.push(currentFormat);
+  return f;
+}
+function renderFormatSwitch() {
+  const box = document.getElementById('format-switch');
+  box.innerHTML = '';
+  getFormats().forEach(f => {
+    const b = document.createElement('button');
+    b.className = 'fmt-btn' + (f === currentFormat ? ' active' : '');
+    b.textContent = f;
+    b.setAttribute('aria-pressed', f === currentFormat);
+    b.onclick = () => setFormat(f);
+    box.appendChild(b);
+  });
+  const add = document.createElement('button');
+  add.className = 'fmt-btn fmt-add';
+  add.textContent = '+';
+  add.title = 'Añadir formato';
+  add.onclick = () => {
+    const name = (prompt('Nombre del nuevo formato (p. ej. Commander):') || '').trim();
+    if (name) setFormat(name);
+  };
+  box.appendChild(add);
+  document.getElementById('form-format').textContent = currentFormat;
+}
+function setFormat(f) {
+  currentFormat = f;
+  try { localStorage.setItem('mtg-format', f); } catch(e) {}
+  selectedDeck = null; selectedOpp = null;
+  applyFormat();
+}
+function applyFormat() {
+  matches = allMatches.filter(m => m.format === currentFormat);
+  renderFormatSwitch();
+  setSyncStatus('ok', matches.length + ' partidas de ' + currentFormat);
+  updateDataLists();
+  renderActive();
+}
+
 // ── FORM ──────────────────────────────────────────────────────────────────────
 function pick(r) {
   picked = r;
@@ -246,7 +299,7 @@ async function saveMatch() {
   const opp = document.getElementById('oppDeck').value.trim();
   if (!my || !opp || !picked) { toast('Rellena mazo, rival y resultado', '#e05c5c'); return; }
 
-  const match = { id: Date.now(), date: new Date().toISOString(), myDeck: my, oppDeck: opp, result: picked, notes: document.getElementById('notes').value.trim(), format: 'Premodern' };
+  const match = { id: Date.now(), date: new Date().toISOString(), myDeck: my, oppDeck: opp, result: picked, notes: document.getElementById('notes').value.trim(), format: currentFormat };
 
   const btn = document.getElementById('btn-save');
   btn.disabled = true;
@@ -255,17 +308,14 @@ async function saveMatch() {
 
   try {
     await postToSheets(match);
-    matches.push(match);
-    matches.sort((a,b) => a.id - b.id);
+    allMatches.push(match);
     document.getElementById('myDeck').value = '';
     document.getElementById('oppDeck').value = '';
     document.getElementById('notes').value = '';
     picked = null;
     document.getElementById('btn-W').className = 'result-btn';
     document.getElementById('btn-L').className = 'result-btn';
-    updateDataLists();
-    renderActive();
-    setSyncStatus('ok', matches.length + ' partidas');
+    applyFormat();
     toast('Partida guardada ✓');
   } catch(e) {
     setSyncStatus('err', 'Error al guardar');
@@ -279,9 +329,8 @@ async function deleteMatch(id) {
   setSyncStatus('loading', 'Eliminando...');
   try {
     await postToSheets({ delete: true, id });
-    matches = matches.filter(m => m.id !== id);
-    renderActive();
-    setSyncStatus('ok', matches.length + ' partidas');
+    allMatches = allMatches.filter(m => m.id !== id);
+    applyFormat();
     toast('Partida eliminada');
   } catch(e) {
     setSyncStatus('err', 'Error al eliminar');
@@ -340,7 +389,7 @@ function wr(w,t){return t===0?0:Math.round(w/t*100);}
 
 // ── GLOBAL ────────────────────────────────────────────────────────────────────
 function renderStats() {
-  if (!matches.length) { document.getElementById('tab-stats').innerHTML = '<div class="loading-screen">No hay partidas aún.</div>'; return; }
+  if (!matches.length) { document.getElementById('tab-stats').innerHTML = `<div class="loading-screen">Aún no hay partidas de ${currentFormat}. Registra la primera en el formulario.</div>`; return; }
   const total=matches.length, wins=matches.filter(m=>m.result==='W').length, wrG=wr(wins,total);
   const decks=[...new Set(matches.map(m=>m.myDeck))];
   document.getElementById('tab-stats').innerHTML = `
@@ -361,6 +410,13 @@ function renderStats() {
 
 // ── POR MAZO ─────────────────────────────────────────────────────────────────
 function renderByDeck() {
+  if (!matches.length) {
+    document.getElementById('deck-pills').innerHTML = `<span class="empty-msg" style="padding:0">Aún no hay partidas de ${currentFormat}.</span>`;
+    document.getElementById('deck-metrics').innerHTML = '';
+    document.querySelector('#deck-matchup-table tbody').innerHTML = '';
+    destroyChart('vsopp'); destroyChart('deckTrend');
+    return;
+  }
   const myDecks=[...new Set(matches.map(m=>m.myDeck))];
   if(!selectedDeck||!myDecks.includes(selectedDeck)) selectedDeck=myDecks[0];
   document.getElementById('deck-pills').innerHTML=myDecks.map(d=>`<button class="pill${d===selectedDeck?' active':''}" onclick="selectDeck('${d.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">${d}</button>`).join('');
@@ -381,6 +437,11 @@ function selectDeck(d){selectedDeck=d;renderByDeck();}
 
 // ── COMPARATIVA ───────────────────────────────────────────────────────────────
 function renderCompare() {
+  if (!matches.length) {
+    document.getElementById('opp-pills').innerHTML = '';
+    document.getElementById('compare-content').innerHTML = `<div class="empty-msg">Aún no hay partidas de ${currentFormat}.</div>`;
+    return;
+  }
   const opps=[...new Set(matches.map(m=>m.oppDeck))].sort();
   if(!selectedOpp||!opps.includes(selectedOpp)) selectedOpp=opps[0];
   document.getElementById('opp-pills').innerHTML=opps.map(o=>`<button class="pill${o===selectedOpp?' active':''}" onclick="selectOpp('${o.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">${o}</button>`).join('');
